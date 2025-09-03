@@ -65,7 +65,7 @@
 </head>
 <body>
   <h1>🍳 Pixel Chef Tycoon</h1>
-  <canvas id="gameCanvas" width="400" height="200"></canvas>
+  <canvas id="gameCanvas" width="500" height="300"></canvas>
   <p id="hud">Day 1 | Coins: 0</p>
 
   <div id="shop">
@@ -98,45 +98,22 @@
     let gameActive = false;
     let currentRecipe = null;
     let resultGiven = false;
+    let customerVisible = false;
+    let foodSlide = null;
 
     // Burger vars
     let grillTimer = 0;
     let grillMax;
-    let flipZone = { min: 40, max: 60 };
+    let pattyState = 0; // 0=raw,1=cooking,2=perfect,3=burnt
     let flipped = false;
 
     // Soup vars
     let soupProgress = 0;
     let soupTarget = 5;
     let stirring = false;
+    let lastAngle = null;
 
-    function startDay() {
-      currentRecipe = Math.random() < 0.5 ? "burger" : "soup";
-      hud.textContent = `Day ${saveData.day} | Coins: ${saveData.coins} | Order: ${currentRecipe}`;
-      shopDiv.style.display = "none";
-      canvas.style.display = "block";
-      resultGiven = false;
-
-      if (currentRecipe === "burger") {
-        grillTimer = 0;
-        flipped = false;
-        grillMax = 100 - saveData.grillUpgrade * 10;
-      } else {
-        soupProgress = 0;
-        soupTarget = 5 + saveData.soupUpgrade * 2;
-      }
-
-      gameActive = true;
-    }
-
-    function glowRect(x, y, w, h, color) {
-      ctx.shadowColor = color;
-      ctx.shadowBlur = 20;
-      ctx.fillStyle = color;
-      ctx.fillRect(x, y, w, h);
-      ctx.shadowBlur = 0;
-    }
-
+    // Glow helpers
     function glowCircle(x, y, r, color) {
       ctx.shadowColor = color;
       ctx.shadowBlur = 20;
@@ -146,52 +123,105 @@
       ctx.fill();
       ctx.shadowBlur = 0;
     }
+    function glowText(txt, x, y, color="#0ff") {
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 15;
+      ctx.fillStyle = color;
+      ctx.fillText(txt, x, y);
+      ctx.shadowBlur = 0;
+    }
+
+    function startDay() {
+      currentRecipe = Math.random() < 0.5 ? "burger" : "soup";
+      hud.textContent = `Day ${saveData.day} | Coins: ${saveData.coins} | Order: ${currentRecipe}`;
+      shopDiv.style.display = "none";
+      canvas.style.display = "block";
+      resultGiven = false;
+      customerVisible = true;
+      foodSlide = null;
+
+      if (currentRecipe === "burger") {
+        grillTimer = 0;
+        flipped = false;
+        pattyState = 0;
+        grillMax = 400 - saveData.grillUpgrade * 50;
+      } else {
+        soupProgress = 0;
+        soupTarget = 3 + saveData.soupUpgrade;
+        lastAngle = null;
+      }
+
+      gameActive = true;
+    }
+
+    function drawCustomer() {
+      // Customer silhouette
+      glowCircle(70, 220, 30, "#222");
+      glowCircle(70, 180, 20, "#222");
+      // Order sign
+      glowText(currentRecipe==="burger"?"🍔":"🥣", 55, 130, "#f0f");
+    }
 
     function drawBurger() {
-      ctx.fillStyle = "#fff";
-      ctx.fillText("🍔 Burger: Press SPACE!", 100, 40);
+      glowText("Click patty to flip!", 180, 40, "#fff");
 
-      // Grill bar bg
-      glowRect(50, 100, 300, 20, "#222");
+      // Grill
+      ctx.fillStyle = "#333";
+      ctx.fillRect(150, 180, 200, 10);
 
-      // Grill progress
-      glowRect(50, 100, (grillTimer / grillMax) * 300, 20, flipped ? "#0f0" : "#f00");
+      // Patty
+      let color = "#f00";
+      if (grillTimer > 100) color = "#fa0";
+      if (grillTimer > 200) { color = "#f0f"; pattyState = 2; }
+      if (grillTimer > 300) { color = "#500"; pattyState = 3; }
 
-      // Flip zone marker
-      glowRect(50 + (flipZone.min/100)*300, 100,
-               ((flipZone.max - flipZone.min)/100)*300, 20, "rgba(255,255,0,0.5)");
+      glowCircle(250, 160, 25, color);
     }
 
     function drawSoup() {
-      ctx.fillStyle = "#fff";
-      ctx.fillText("🥣 Soup: Stir with mouse!", 70, 40);
-
+      glowText("Stir in circles!", 190, 40, "#fff");
       // Bowl
-      glowCircle(200, 100, 60, "#09f");
-      glowCircle(200, 100, 50, "#000");
+      glowCircle(250, 160, 60, "#09f");
+      glowCircle(250, 160, 50, "#000");
 
-      // Steam effect (fake)
-      glowCircle(200 + Math.sin(Date.now()/300)*10, 40, 5, "#0ff");
-      glowCircle(190, 50, 4, "#0ff");
-      glowCircle(210, 60, 3, "#0ff");
+      // Soup
+      glowCircle(250, 160, 45, "#f50");
 
-      // Progress bar
-      glowRect(100, 160, 200, 15, "#333");
-      glowRect(100, 160, (soupProgress / soupTarget) * 200, 15, "#0f0");
+      // Bubbling
+      if (soupProgress > 0) {
+        glowCircle(240+Math.sin(Date.now()/200)*5, 140, 5, "#ff0");
+        glowCircle(260+Math.cos(Date.now()/300)*5, 150, 4, "#ff0");
+      }
+    }
+
+    function animateFoodToCustomer(icon) {
+      let x = 250, y = 160;
+      let targetX = 100, targetY = 160;
+      foodSlide = { icon, x, y, targetX, targetY, progress: 0 };
     }
 
     function gameLoop() {
       ctx.clearRect(0,0,canvas.width,canvas.height);
 
+      if (customerVisible) drawCustomer();
+
       if (gameActive) {
         if (currentRecipe === "burger") {
           grillTimer++;
-          if (grillTimer > grillMax && !resultGiven) endCooking(false);
           drawBurger();
+          if (pattyState===3 && !resultGiven) endCooking(false);
         } else {
           drawSoup();
           if (soupProgress >= soupTarget && !resultGiven) endCooking(true);
         }
+      }
+
+      if (foodSlide) {
+        foodSlide.progress += 0.02;
+        let x = foodSlide.x + (foodSlide.targetX - foodSlide.x) * foodSlide.progress;
+        let y = foodSlide.y + (foodSlide.targetY - foodSlide.y) * foodSlide.progress;
+        glowText(foodSlide.icon, x, y, "#0f0");
+        if (foodSlide.progress >= 1) foodSlide = null;
       }
 
       requestAnimationFrame(gameLoop);
@@ -201,31 +231,31 @@
       resultGiven = true;
       gameActive = false;
       if (success) {
-        alert(`Perfect ${currentRecipe}! +3 coins`);
+        animateFoodToCustomer(currentRecipe==="burger"?"🍔":"🥣");
         saveData.coins += 3;
-      } else {
-        alert(`${currentRecipe} failed! No coins earned.`);
       }
-      openShop();
+      setTimeout(openShop, 1500);
     }
 
-    document.addEventListener("keydown", e => {
-      if (gameActive && currentRecipe === "burger" && e.code === "Space" && !flipped) {
+    canvas.addEventListener("click", e => {
+      if (gameActive && currentRecipe==="burger" && !flipped) {
         flipped = true;
-        let percent = (grillTimer / grillMax) * 100;
-        if (percent >= flipZone.min && percent <= flipZone.max) {
-          endCooking(true);
-        } else {
-          endCooking(false);
-        }
+        if (pattyState===2) endCooking(true);
+        else endCooking(false);
       }
     });
 
-    canvas.addEventListener("mousedown", () => { if (currentRecipe==="soup") stirring = true; });
-    canvas.addEventListener("mouseup", () => { stirring = false; });
-    canvas.addEventListener("mousemove", () => {
-      if (gameActive && currentRecipe==="soup" && stirring) {
-        soupProgress += 0.05 + saveData.soupUpgrade * 0.02;
+    canvas.addEventListener("mousemove", e => {
+      if (gameActive && currentRecipe==="soup") {
+        let dx = e.offsetX-250, dy = e.offsetY-160;
+        let angle = Math.atan2(dy, dx);
+        if (lastAngle!==null) {
+          let delta = angle - lastAngle;
+          if (delta > Math.PI) delta -= 2*Math.PI;
+          if (delta < -Math.PI) delta += 2*Math.PI;
+          if (Math.abs(delta) > 0.2) soupProgress += 0.1 + saveData.soupUpgrade*0.05;
+        }
+        lastAngle = angle;
       }
     });
 
