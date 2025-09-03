@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Pixel Chef Tycoon (Playtest)</title>
+  <style>
+    body {
+      background: #222;
+      color: #eee;
+      font-family: monospace;
+      text-align: center;
+      margin: 0;
+      padding: 20px;
+    }
+    h1 { margin: 5px; }
+    canvas {
+      border: 3px solid #eee;
+      margin: 15px auto;
+      display: block;
+      background: #111;
+    }
+    #shop {
+      display: none;
+      margin-top: 20px;
+      padding: 10px;
+      border: 2px solid #eee;
+      background: #333;
+    }
+    button {
+      margin: 5px;
+      padding: 8px 15px;
+      background: #444;
+      color: #eee;
+      border: 1px solid #eee;
+      cursor: pointer;
+    }
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+  </style>
+</head>
+<body>
+  <h1>🍳 Pixel Chef Tycoon</h1>
+  <canvas id="gameCanvas" width="400" height="200"></canvas>
+  <p id="hud">Day 1 | Coins: 0</p>
+
+  <div id="shop">
+    <h2>🏪 Shop</h2>
+    <p id="shop-coins"></p>
+    <button id="buy-timer">Upgrade Grill Timer (Cost: 5)</button>
+    <button id="buy-soup">Upgrade Stirring Control (Cost: 5)</button>
+    <button id="next-day">Next Day ▶</button>
+  </div>
+
+  <script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+    const hud = document.getElementById("hud");
+    const shopDiv = document.getElementById("shop");
+    const shopCoins = document.getElementById("shop-coins");
+    const btnTimer = document.getElementById("buy-timer");
+    const btnSoup = document.getElementById("buy-soup");
+    const btnNext = document.getElementById("next-day");
+
+    // Persistent save
+    let saveData = JSON.parse(localStorage.getItem("chefSave")) || {
+      coins: 0,
+      day: 1,
+      grillUpgrade: 0,
+      soupUpgrade: 0
+    };
+
+    // Game state
+    let gameActive = false;
+    let currentRecipe = null;
+    let resultGiven = false;
+
+    // Burger variables
+    let grillTimer = 0;
+    let grillMax;
+    let flipZone = { min: 40, max: 60 };
+    let flipped = false;
+
+    // Soup variables
+    let soupProgress = 0;
+    let soupTarget = 5;
+    let stirring = false;
+
+    function startDay() {
+      currentRecipe = Math.random() < 0.5 ? "burger" : "soup";
+      hud.textContent = `Day ${saveData.day} | Coins: ${saveData.coins} | Order: ${currentRecipe}`;
+      shopDiv.style.display = "none";
+      canvas.style.display = "block";
+      resultGiven = false;
+
+      if (currentRecipe === "burger") {
+        grillTimer = 0;
+        flipped = false;
+        grillMax = 100 - saveData.grillUpgrade * 10;
+      } else {
+        soupProgress = 0;
+        soupTarget = 5 + saveData.soupUpgrade * 2;
+      }
+
+      gameActive = true;
+    }
+
+    function drawBurger() {
+      // Grill bar
+      ctx.fillStyle = "#555";
+      ctx.fillRect(50, 80, 300, 30);
+
+      // Progress
+      ctx.fillStyle = flipped ? "#0f0" : "#f00";
+      ctx.fillRect(50, 80, (grillTimer / grillMax) * 300, 30);
+
+      // Flip zone
+      ctx.fillStyle = "rgba(255,255,0,0.4)";
+      ctx.fillRect(50 + (flipZone.min/100)*300, 80, ((flipZone.max - flipZone.min)/100)*300, 30);
+
+      ctx.fillStyle = "#eee";
+      ctx.fillText("Burger: Press SPACE to flip!", 110, 50);
+    }
+
+    function drawSoup() {
+      ctx.fillStyle = "#0af";
+      ctx.beginPath();
+      ctx.arc(200, 100, 50, 0, Math.PI*2);
+      ctx.fill();
+
+      ctx.fillStyle = "#fff";
+      ctx.fillText("Soup: Stir with mouse!", 130, 30);
+
+      // Progress bar
+      ctx.fillStyle = "#555";
+      ctx.fillRect(100, 160, 200, 20);
+      ctx.fillStyle = "#0f0";
+      ctx.fillRect(100, 160, (soupProgress / soupTarget) * 200, 20);
+    }
+
+    function gameLoop() {
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+
+      if (gameActive) {
+        if (currentRecipe === "burger") {
+          grillTimer++;
+          if (grillTimer > grillMax && !resultGiven) {
+            endCooking(false);
+          }
+          drawBurger();
+        } else {
+          drawSoup();
+          if (soupProgress >= soupTarget && !resultGiven) {
+            endCooking(true);
+          }
+        }
+      }
+
+      requestAnimationFrame(gameLoop);
+    }
+
+    function endCooking(success) {
+      resultGiven = true;
+      gameActive = false;
+      if (success) {
+        alert(`Perfect ${currentRecipe}! +3 coins`);
+        saveData.coins += 3;
+      } else {
+        alert(`${currentRecipe} failed! No coins earned.`);
+      }
+      openShop();
+    }
+
+    document.addEventListener("keydown", e => {
+      if (gameActive && currentRecipe === "burger" && e.code === "Space" && !flipped) {
+        flipped = true;
+        let percent = (grillTimer / grillMax) * 100;
+        if (percent >= flipZone.min && percent <= flipZone.max) {
+          endCooking(true);
+        } else {
+          endCooking(false);
+        }
+      }
+    });
+
+    canvas.addEventListener("mousedown", () => { if (currentRecipe==="soup") stirring = true; });
+    canvas.addEventListener("mouseup", () => { stirring = false; });
+    canvas.addEventListener("mousemove", e => {
+      if (gameActive && currentRecipe==="soup" && stirring) {
+        soupProgress += 0.05 + saveData.soupUpgrade * 0.02;
+      }
+    });
+
+    function openShop() {
+      saveData.day++;
+      saveGame();
+      canvas.style.display = "none";
+      shopDiv.style.display = "block";
+      shopCoins.textContent = `You have ${saveData.coins} coins.`;
+      btnTimer.disabled = saveData.coins < 5;
+      btnSoup.disabled = saveData.coins < 5;
+    }
+
+    btnTimer.onclick = () => {
+      if (saveData.coins >= 5) {
+        saveData.coins -= 5;
+        saveData.grillUpgrade++;
+        saveGame();
+        shopCoins.textContent = `You have ${saveData.coins} coins.`;
+        btnTimer.disabled = saveData.coins < 5;
+      }
+    };
+
+    btnSoup.onclick = () => {
+      if (saveData.coins >= 5) {
+        saveData.coins -= 5;
+        saveData.soupUpgrade++;
+        saveGame();
+        shopCoins.textContent = `You have ${saveData.coins} coins.`;
+        btnSoup.disabled = saveData.coins < 5;
+      }
+    };
+
+    btnNext.onclick = () => {
+      saveGame();
+      startDay();
+    };
+
+    function saveGame() {
+      localStorage.setItem("chefSave", JSON.stringify(saveData));
+    }
+
+    startDay();
+    gameLoop();
+  </script>
+</body>
+</html>
